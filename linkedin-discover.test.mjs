@@ -16,6 +16,7 @@ import {
 import { mkdtempSync, rmSync, readFileSync as rf, writeFileSync as wf, existsSync as ex, readdirSync } from 'fs';
 import { join as pjoin } from 'path';
 import { tmpdir } from 'os';
+import { execFileSync } from 'child_process';
 
 let passed = 0;
 let failed = 0;
@@ -378,6 +379,74 @@ assert(parsePostedAt(null) === undefined, 'parsePostedAt: null -> undefined');
     process.chdir(prevCwd);
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+// ── CLI ─────────────────────────────────────────────────────────────
+
+const SCRIPT = pjoin(process.cwd(), 'linkedin-discover.mjs');
+
+function runCli(args, cwd) {
+  try {
+    const env = { ...process.env };
+    delete env.DOTENV_KEY;
+    delete env.DOTENV_VAULT;
+    delete env.DOTENV_PRIVATE_KEY_FALLBACK;
+    const result = execFileSync(process.execPath, [SCRIPT, ...args], {
+      cwd,
+      encoding: 'utf-8',
+      env,
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+    // Strip dotenvx logging output that may be mixed in
+    const cleaned = result.split('\n').filter(line => !line.startsWith('◇')).join('\n');
+    return { code: 0, stdout: cleaned };
+  } catch (err) {
+    let stdout = (err.stdout ?? '').split('\n').filter(line => !line.startsWith('◇')).join('\n');
+    return { code: err.status, stdout, stderr: err.stderr ?? '' };
+  }
+}
+
+{
+  const dir = mkdtempSync(pjoin(tmpdir(), 'li-cli-'));
+
+  // config: defaults when portals.yml absent
+  const conf = runCli(['config'], dir);
+  assert(conf.code === 0, 'cli config: exit 0 without portals.yml');
+  assert(JSON.parse(conf.stdout).location === 'United States', 'cli config: default location');
+
+  // config: reads portals.yml linkedin block
+  wf(pjoin(dir, 'portals.yml'), 'linkedin:\n  query: "staff engineer"\n  max_jobs: 10\n', 'utf-8');
+  const conf2 = JSON.parse(runCli(['config'], dir).stdout);
+  assert(conf2.query === 'staff engineer' && conf2.max_jobs === 10, 'cli config: yaml block merged');
+
+  // save + check + stats round trip
+  const job = JSON.stringify({
+    raw: { title: 'Engineer', company: 'Acme', job_url: 'https://www.linkedin.com/jobs/view/4000000010/', description: 'jd' },
+    eval: { score: 4.0, breakdown: {}, matching_reasons: [], missing_requirements: [], concerns: [] },
+  });
+  const saved = runCli(['save', '--json', job], dir);
+  assert(saved.code === 0, 'cli save: exit 0');
+  assert(JSON.parse(saved.stdout).classification === 'good', 'cli save: classification in output');
+  assert(!saved.stdout.includes('"jd"'), 'cli save: output does not echo the description');
+
+  const chk = runCli(['check', '4000000010'], dir);
+  assert(chk.code === 0 && JSON.parse(chk.stdout).found === true, 'cli check: finds saved job');
+
+  const st = runCli(['stats'], dir);
+  assert(JSON.parse(st.stdout).good === 1, 'cli stats: counts saved job');
+
+  // mark
+  const mk = runCli(['mark', '--json', JSON.stringify({ raw: { title: 'Dead', company: 'Beta' }, status: 'closed', reason: 'expired' })], dir);
+  assert(mk.code === 0, 'cli mark: exit 0');
+  assert(JSON.parse(runCli(['stats'], dir).stdout).errors === 1, 'cli stats: marked job counted in errors');
+
+  // error paths
+  assert(runCli([], dir).code === 2, 'cli: no subcommand -> exit 2');
+  assert(runCli(['bogus'], dir).code === 2, 'cli: unknown subcommand -> exit 2');
+  assert(runCli(['save', '--json', '{not json'], dir).code === 1, 'cli save: bad JSON -> exit 1');
+  assert(runCli(['save'], dir).code === 1, 'cli save: missing --json -> exit 1');
+
+  rmSync(dir, { recursive: true, force: true });
 }
 
 // ── summary ─────────────────────────────────────────────────────────

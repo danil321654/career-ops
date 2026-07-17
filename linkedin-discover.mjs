@@ -344,23 +344,68 @@ export function computeStats(paths = {}) {
 // ── CLI ─────────────────────────────────────────────────────────────
 
 function usage() {
-  console.error('Usage: node linkedin-discover.mjs <config|check|save|mark|stats> [args]');
+  console.error(`Usage:
+  node linkedin-discover.mjs config
+  node linkedin-discover.mjs check <jobId> [--key <fallbackKey>] [--hash <sha256>]
+  node linkedin-discover.mjs save --json '<record JSON>'
+  node linkedin-discover.mjs mark --json '<record JSON with status>'
+  node linkedin-discover.mjs stats
+Flags: --verbose (stack traces on error)`);
   process.exit(2);
 }
 
+function argValue(args, flag) {
+  const i = args.indexOf(flag);
+  return i !== -1 && i + 1 < args.length ? args[i + 1] : undefined;
+}
+
 async function main() {
-  const [cmd] = process.argv.slice(2);
+  const args = process.argv.slice(2);
+  const cmd = args[0];
+  const verbose = args.includes('--verbose');
   try {
     if (cmd === 'config') {
       const yamlObj = existsSync(PORTALS_PATH)
         ? yaml.load(readFileSync(PORTALS_PATH, 'utf-8'))
         : {};
       console.log(JSON.stringify(resolveConfig(yamlObj), null, 2));
+    } else if (cmd === 'check') {
+      const id = args[1] && !args[1].startsWith('--') ? args[1] : undefined;
+      const key = argValue(args, '--key');
+      const hash = argValue(args, '--hash');
+      if (!id && !key) throw new Error('check: provide a job id or --key');
+      const { found, changed, record } = checkJob({ id, key, hash });
+      // Compact echo — never the full stored record (descriptions stay out of logs).
+      console.log(JSON.stringify({
+        found,
+        changed,
+        classification: record?.classification ?? null,
+        score: record?.score ?? null,
+      }));
+    } else if (cmd === 'save' || cmd === 'mark') {
+      const json = argValue(args, '--json');
+      if (!json) throw new Error(`${cmd}: --json '<record>' is required`);
+      let input;
+      try { input = JSON.parse(json); }
+      catch { throw new Error(`${cmd}: --json payload is not valid JSON`); }
+      if (cmd === 'save') {
+        const yamlObj = existsSync(PORTALS_PATH)
+          ? yaml.load(readFileSync(PORTALS_PATH, 'utf-8'))
+          : {};
+        const result = await saveJob(input, resolveConfig(yamlObj));
+        console.log(JSON.stringify(result));
+      } else {
+        const entry = markJob(input);
+        console.log(JSON.stringify({ marked: entry.classification, id: entry.id, key: entry.fallback_key }));
+      }
+    } else if (cmd === 'stats') {
+      console.log(JSON.stringify(computeStats(), null, 2));
     } else {
       usage();
     }
   } catch (err) {
     console.error(`linkedin-discover: ${err.message}`);
+    if (verbose) console.error(err.stack);
     process.exit(1);
   }
 }
