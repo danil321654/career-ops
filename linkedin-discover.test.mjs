@@ -234,6 +234,20 @@ assert(parsePostedAt(null) === undefined, 'parsePostedAt: null -> undefined');
   // atomic write: no .tmp file left behind
   assert(readdirSync(dir).every(f => !f.endsWith('.tmp')), 'jsonl: no temp files left after writes');
 
+  // atomicity: a failing write must leave the existing file untouched
+  const before = rf(file, 'utf-8');
+  const circular = { id: 'c1', fallback_key: 'c|c|c' };
+  circular.self = circular;
+  assertThrows(() => upsertJsonl(file, circular), 'jsonl: unserializable record throws');
+  assert(rf(file, 'utf-8') === before, 'jsonl: failed write leaves file byte-identical');
+
+  // malformed-line error carries the PHYSICAL line number (blank lines counted)
+  wf(pjoin(dir, 'blank.jsonl'), '{"ok":1}\n\nnot json\n', 'utf-8');
+  let lineErr = null;
+  try { readJsonl(pjoin(dir, 'blank.jsonl')); } catch (e) { lineErr = e.message; }
+  assert(lineErr !== null && lineErr.includes('blank.jsonl:3'),
+    `jsonl: malformed-line error names physical line 3 (got: ${lineErr})`);
+
   // malformed line -> loud error with path and line number
   wf(file, '{"ok":1}\nnot json\n', 'utf-8');
   assertThrows(() => readJsonl(file), 'jsonl: malformed line throws');

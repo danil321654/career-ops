@@ -181,13 +181,14 @@ export function normalizeJob(input) {
 
 export function readJsonl(path) {
   if (!existsSync(path)) return [];
-  return readFileSync(path, 'utf-8')
-    .split('\n')
-    .filter(line => line.trim() !== '')
-    .map((line, i) => {
-      try { return JSON.parse(line); }
-      catch { throw new Error(`${path}:${i + 1}: malformed JSONL line`); }
-    });
+  const out = [];
+  const lines = readFileSync(path, 'utf-8').split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].trim() === '') continue;
+    try { out.push(JSON.parse(lines[i])); }
+    catch { throw new Error(`${path}:${i + 1}: malformed JSONL line`); }
+  }
+  return out;
 }
 
 export function writeJsonlAtomic(path, records) {
