@@ -375,6 +375,17 @@ assert(parsePostedAt(null) === undefined, 'parsePostedAt: null -> undefined');
     const s = computeStats();
     assert(s.processed === 3 && s.good === 2 && s.mid === 0 && s.irrelevant === 1,
       `stats: counts correct (got ${JSON.stringify(s)})`);
+
+    // blacklist gate: a good match from a blacklisted company still saves to
+    // good_matches.jsonl but is NOT written into data/pipeline.md
+    wf('data/blacklist.md', '| Company | Since | Scope | Reason |\n|---|---|---|---|\n| BlacklistedCo | 2026-01-01 | all | test |\n', 'utf-8');
+    const bl = await saveJob(mkJob('4000000050', 4.5, { company: 'BlacklistedCo' }), cfg);
+    assert(bl.classification === 'good' && bl.pipelined === false,
+      'save: blacklisted good match not pipelined');
+    assert(readJsonl(GOOD_PATH).some(r => r.id === '4000000050'),
+      'save: blacklisted good match still recorded in good_matches.jsonl');
+    assert(!rf('data/pipeline.md', 'utf-8').includes('4000000050'),
+      'save: blacklisted good match absent from pipeline.md');
   } finally {
     process.chdir(prevCwd);
     rmSync(dir, { recursive: true, force: true });

@@ -306,9 +306,12 @@ export async function saveJob(input, cfg = DEFAULTS, paths = {}) {
   // pipeline so `/career-ops pipeline` can run full A-G evaluation later.
   let pipelined = false;
   if (classification === 'good' && record.raw.job_url) {
-    const { appendToPipeline, appendToScanHistory, loadSeenUrls } = await import('./scan.mjs');
+    const { appendToPipeline, appendToScanHistory, loadSeenUrls, loadBlacklist } = await import('./scan.mjs');
+    const { normalizeCompany } = await import('./tracker-utils.mjs');
+    const blacklisted = record.raw.company
+      && loadBlacklist().has(normalizeCompany(record.raw.company));
     const { seen: seenUrls } = loadSeenUrls();
-    if (!seenUrls.has(record.raw.job_url)) {
+    if (!blacklisted && !seenUrls.has(record.raw.job_url)) {
       const offer = {
         url: record.raw.job_url,
         company: record.raw.company ?? '?',

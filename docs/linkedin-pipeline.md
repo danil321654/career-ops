@@ -71,6 +71,6 @@ Primary key: numeric LinkedIn job id (from the job URL). Fallback: normalized `c
 |---------|-----|
 | "LinkedIn requires manual login" | Log in in the MCP browser window, re-run |
 | Run stopped with "layout change" diagnostic | LinkedIn changed its markup; re-run later or update `modes/linkedin.md` selectors |
-| Duplicate-looking rows in `pipeline.md` | Run `node reconcile-pipeline.mjs`; the helper dedups by URL before appending |
+| Duplicate-looking rows in `pipeline.md` | `saveJob` already dedups by URL via `loadSeenUrls()` before appending, so reruns don't re-add a good match. If you see dupes from other sources, run `node dedup-tracker.mjs` |
 | Helper errors | Re-run the failing `node linkedin-discover.mjs ...` command with `--verbose` |
 | Start over | Delete `data/linkedin/` (this loses resume state and results) |
