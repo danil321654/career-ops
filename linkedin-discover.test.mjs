@@ -11,7 +11,7 @@ import {
   parseJobId, normalizeField, fallbackKey,
   normalizeJob, descriptionHash, parsePostedAt, RAW_FIELDS, NORMALIZED_FIELDS,
   readJsonl, writeJsonlAtomic, upsertJsonl, removeFromJsonl, recordKey,
-  checkJob, markJob,
+  checkJob, markJob, saveJob, computeStats, GOOD_PATH, MID_PATH, PROCESSED_PATH,
 } from './linkedin-discover.mjs';
 import { mkdtempSync, rmSync, readFileSync as rf, writeFileSync as wf, existsSync as ex, readdirSync } from 'fs';
 import { join as pjoin } from 'path';
@@ -290,6 +290,94 @@ assert(parsePostedAt(null) === undefined, 'parsePostedAt: null -> undefined');
     'mark: unknown status throws');
 
   rmSync(dir, { recursive: true, force: true });
+}
+
+// ── saveJob routing + hybrid writes + resume ────────────────────────
+
+{
+  // saveJob calls scan.mjs appendToPipeline/appendToScanHistory, which write
+  // cwd-relative data/ paths — run this block inside a temp cwd.
+  const dir = mkdtempSync(pjoin(tmpdir(), 'li-save-'));
+  const prevCwd = process.cwd();
+  process.chdir(dir);
+  try {
+    const cfg = { minimum_mid_score: 2.5, minimum_good_score: 3.5 };
+    const mkJob = (id, score, over = {}) => ({
+      raw: {
+        title: over.title ?? 'Senior Backend Engineer',
+        company: over.company ?? 'Acme Corp',
+        job_url: `https://www.linkedin.com/jobs/view/${id}/`,
+        location: 'United States (Remote)',
+        date_posted: '2026-07-10',
+        description: over.description ?? `JD body for ${id}`,
+      },
+      eval: {
+        score,
+        breakdown: { cv_match: score, north_star: score, comp: score, culture: score, red_flags: 'none' },
+        matching_reasons: ['strong backend match'],
+        missing_requirements: [],
+        concerns: [],
+      },
+    });
+
+    // routing: good
+    const g = await saveJob(mkJob('4000000001', 4.2), cfg);
+    assert(g.classification === 'good' && g.action === 'inserted', 'save: 4.2 -> good inserted');
+    assert(readJsonl(GOOD_PATH).length === 1, 'save: good match in good_matches.jsonl');
+    assert(readJsonl(MID_PATH).length === 0, 'save: good match NOT in mid file');
+    assert(readJsonl(GOOD_PATH)[0].eval.classification === 'good', 'save: classification stamped on record');
+    assert(typeof readJsonl(GOOD_PATH)[0].eval.evaluated_at === 'string', 'save: evaluated_at stamped');
+
+    // hybrid: good match appended to pipeline.md + scan-history.tsv
+    assert(g.pipelined === true, 'save: good match pipelined');
+    assert(rf('data/pipeline.md', 'utf-8').includes('4000000001'), 'save: pipeline.md has job URL');
+    const hist = rf('data/scan-history.tsv', 'utf-8');
+    assert(hist.includes('linkedin') && hist.includes('4000000001'), 'save: scan-history row with portal=linkedin');
+
+    // rerun same unchanged job -> update, no pipeline duplicate
+    const g2 = await saveJob(mkJob('4000000001', 4.2), cfg);
+    assert(g2.action === 'updated' && g2.pipelined === false, 'save: rerun updates without re-pipelining');
+    assert(readJsonl(GOOD_PATH).length === 1, 'save: rerun does not duplicate good match');
+    assert((rf('data/pipeline.md', 'utf-8').match(/4000000001/g) || []).length === 1,
+      'save: pipeline.md not duplicated on rerun');
+
+    // routing: mid
+    const m = await saveJob(mkJob('4000000002', 3.0), cfg);
+    assert(m.classification === 'mid' && m.pipelined === false, 'save: 3.0 -> mid, not pipelined');
+    assert(readJsonl(MID_PATH).length === 1, 'save: mid match in mid_matches.jsonl');
+
+    // routing: irrelevant — processed only, with reason
+    const i = await saveJob({ ...mkJob('4000000003', 2.0), eval: { ...mkJob('4000000003', 2.0).eval, rejection_reason: 'wrong stack' } }, cfg);
+    assert(i.classification === 'irrelevant', 'save: 2.0 -> irrelevant');
+    assert(readJsonl(GOOD_PATH).length === 1 && readJsonl(MID_PATH).length === 1,
+      'save: irrelevant not in match files');
+    const proc3 = readJsonl(PROCESSED_PATH).find(r => r.id === '4000000003');
+    assert(proc3 && proc3.reason === 'wrong stack', 'save: irrelevant recorded with rejection reason');
+
+    // reclassification: changed JD re-scored mid -> good moves files
+    await saveJob(mkJob('4000000002', 3.8, { description: 'updated JD body' }), cfg);
+    assert(readJsonl(MID_PATH).length === 0, 'save: reclassified job removed from mid file');
+    assert(readJsonl(GOOD_PATH).some(r => r.id === '4000000002'), 'save: reclassified job now in good file');
+
+    // resume semantics: processed file is the state
+    assert(checkJob({ id: '4000000003' }, PROCESSED_PATH).found === true,
+      'resume: processed job found on rerun (skip)');
+    assert(checkJob({ id: '4000000099' }, PROCESSED_PATH).found === false,
+      'resume: unseen job not found (process it)');
+
+    // missing score throws
+    let threw = false;
+    try { await saveJob({ raw: { title: 'X', company: 'Y' } }, cfg); } catch { threw = true; }
+    assert(threw, 'save: missing eval.score throws');
+
+    // stats
+    const s = computeStats();
+    assert(s.processed === 3 && s.good === 2 && s.mid === 0 && s.irrelevant === 1,
+      `stats: counts correct (got ${JSON.stringify(s)})`);
+  } finally {
+    process.chdir(prevCwd);
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 // ── summary ─────────────────────────────────────────────────────────

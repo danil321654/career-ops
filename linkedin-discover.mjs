@@ -256,6 +256,91 @@ export function markJob(input, processedPath = PROCESSED_PATH) {
   return entry;
 }
 
+// ── Save + routing ──────────────────────────────────────────────────
+
+function summarizeReason(record) {
+  const missing = record.eval?.missing_requirements ?? [];
+  if (missing.length) return `missing: ${missing.slice(0, 3).join(', ')}`;
+  return 'below relevance threshold';
+}
+
+export async function saveJob(input, cfg = DEFAULTS, paths = {}) {
+  const goodPath = paths.good ?? GOOD_PATH;
+  const midPath = paths.mid ?? MID_PATH;
+  const processedPath = paths.processed ?? PROCESSED_PATH;
+
+  const record = normalizeJob(input);
+  if (record.eval == null || record.eval.score == null) {
+    throw new Error('saveJob: record.eval.score is required (use `mark` for unscored jobs)');
+  }
+  const classification = classify(record.eval.score, cfg);
+  record.eval.classification = classification;
+  record.eval.evaluated_at = record.eval.evaluated_at ?? new Date().toISOString();
+
+  const key = recordKey(record);
+  const prev = checkJob({ id: record.id, key: record.fallback_key }, processedPath);
+
+  upsertJsonl(processedPath, {
+    id: record.id,
+    fallback_key: record.fallback_key,
+    title: record.raw.title,
+    company: record.raw.company,
+    score: record.eval.score,
+    classification,
+    reason: classification === 'irrelevant'
+      ? (record.eval.rejection_reason ?? summarizeReason(record))
+      : null,
+    description_hash: record.description_hash,
+    collected_at: record.collected_at,
+    evaluated_at: record.eval.evaluated_at,
+  });
+
+  // Route to match files. On reclassification, remove from the file the job
+  // no longer belongs to before inserting into the new one.
+  if (classification !== 'good') removeFromJsonl(goodPath, key);
+  if (classification !== 'mid') removeFromJsonl(midPath, key);
+  if (classification === 'good') upsertJsonl(goodPath, record);
+  if (classification === 'mid') upsertJsonl(midPath, record);
+
+  // Hybrid write (spec decision): good matches also enter the existing
+  // pipeline so `/career-ops pipeline` can run full A-G evaluation later.
+  let pipelined = false;
+  if (classification === 'good' && record.raw.job_url) {
+    const { appendToPipeline, appendToScanHistory, loadSeenUrls } = await import('./scan.mjs');
+    const { seen: seenUrls } = loadSeenUrls();
+    if (!seenUrls.has(record.raw.job_url)) {
+      const offer = {
+        url: record.raw.job_url,
+        company: record.raw.company ?? '?',
+        title: record.raw.title ?? '',
+        location: record.raw.location ?? '',
+        source: 'linkedin',
+        postedAt: parsePostedAt(record.raw.date_posted),
+        description: record.raw.description ?? '',
+      };
+      appendToPipeline([offer]);
+      appendToScanHistory([offer], new Date().toISOString().slice(0, 10));
+      pipelined = true;
+    }
+  }
+
+  return { classification, action: prev.found ? 'updated' : 'inserted', pipelined, id: record.id, key };
+}
+
+// ── Stats ───────────────────────────────────────────────────────────
+
+export function computeStats(paths = {}) {
+  const processed = readJsonl(paths.processed ?? PROCESSED_PATH);
+  const counts = { processed: processed.length, good: 0, mid: 0, irrelevant: 0, errors: 0 };
+  for (const r of processed) {
+    if (r.classification === 'good') counts.good++;
+    else if (r.classification === 'mid') counts.mid++;
+    else if (r.classification === 'irrelevant') counts.irrelevant++;
+    else counts.errors++;
+  }
+  return counts;
+}
+
 // ── CLI ─────────────────────────────────────────────────────────────
 
 function usage() {
