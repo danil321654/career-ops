@@ -89,6 +89,9 @@ export function classify(score, cfg = DEFAULTS) {
 // (/jobs/view/{id} or /jobs/view/{slug}-{id}) or as ?currentJobId={id}.
 export function parseJobId(url) {
   if (typeof url !== 'string') return null;
+  let host;
+  try { host = new URL(url).hostname; } catch { return null; }
+  if (host !== 'linkedin.com' && !host.endsWith('.linkedin.com')) return null;
   const view = url.match(/\/jobs\/view\/(?:[^/?#]*?-)?(\d{6,})/);
   if (view) return view[1];
   const param = url.match(/[?&]currentJobId=(\d{6,})/);

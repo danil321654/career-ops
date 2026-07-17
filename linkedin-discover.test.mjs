@@ -102,6 +102,12 @@ assert(parseJobId('https://www.linkedin.com/jobs/search/?keywords=engineer') ===
   'parseJobId: search URL without job id -> null');
 assert(parseJobId(null) === null, 'parseJobId: null -> null');
 assert(parseJobId(42) === null, 'parseJobId: non-string -> null');
+assert(parseJobId('https://example.com/jobs/view/4012345678/') === null,
+  'parseJobId: non-linkedin host with linkedin-shaped path -> null');
+assert(parseJobId('https://evil.example.com/apply?currentJobId=4098765432') === null,
+  'parseJobId: non-linkedin host with currentJobId param -> null');
+assert(parseJobId('not a url /jobs/view/4012345678') === null,
+  'parseJobId: unparseable URL -> null');
 
 // ── fallbackKey ─────────────────────────────────────────────────────
 
