@@ -11,6 +11,7 @@ import {
   parseJobId, normalizeField, fallbackKey,
   normalizeJob, descriptionHash, parsePostedAt, RAW_FIELDS, NORMALIZED_FIELDS,
   readJsonl, writeJsonlAtomic, upsertJsonl, removeFromJsonl, recordKey,
+  checkJob, markJob,
 } from './linkedin-discover.mjs';
 import { mkdtempSync, rmSync, readFileSync as rf, writeFileSync as wf, existsSync as ex, readdirSync } from 'fs';
 import { join as pjoin } from 'path';
@@ -251,6 +252,42 @@ assert(parsePostedAt(null) === undefined, 'parsePostedAt: null -> undefined');
   // malformed line -> loud error with path and line number
   wf(file, '{"ok":1}\nnot json\n', 'utf-8');
   assertThrows(() => readJsonl(file), 'jsonl: malformed line throws');
+
+  rmSync(dir, { recursive: true, force: true });
+}
+
+// ── checkJob / markJob ──────────────────────────────────────────────
+
+{
+  const dir = mkdtempSync(pjoin(tmpdir(), 'li-check-'));
+  const processed = pjoin(dir, 'processed_jobs.jsonl');
+
+  assert(checkJob({ id: '4012345678' }, processed).found === false, 'check: empty state -> not found');
+
+  markJob({ raw: { title: 'Gone Role', company: 'Acme', job_url: 'https://www.linkedin.com/jobs/view/4012345678/' }, status: 'closed', reason: 'No longer accepting applications' }, processed);
+
+  const hit = checkJob({ id: '4012345678' }, processed);
+  assert(hit.found === true, 'check: marked job found by id');
+  assert(hit.record.classification === 'closed', 'check: mark status recorded as classification');
+  assert(hit.record.reason === 'No longer accepting applications', 'check: mark reason recorded');
+  assert(hit.record.score === null, 'check: marked job has null score');
+
+  // change detection via description hash
+  const sameHash = hit.record.description_hash;
+  assert(checkJob({ id: '4012345678', hash: sameHash }, processed).changed === false,
+    'check: same hash -> unchanged');
+  assert(checkJob({ id: '4012345678', hash: 'deadbeef' }, processed).changed === true,
+    'check: different hash -> changed');
+  assert(checkJob({ id: '4012345678' }, processed).changed === false,
+    'check: no hash provided -> not flagged changed');
+
+  // fallback-key lookup
+  markJob({ raw: { title: 'NoId Role', company: 'Beta', location: 'Berlin' }, status: 'error', reason: 'navigation timeout' }, processed);
+  assert(checkJob({ key: 'beta|noid role|berlin' }, processed).found === true,
+    'check: found by fallback key');
+
+  assertThrows(() => markJob({ raw: { title: 'X', company: 'Y' }, status: 'nonsense' }, processed),
+    'mark: unknown status throws');
 
   rmSync(dir, { recursive: true, force: true });
 }

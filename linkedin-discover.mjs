@@ -219,6 +219,43 @@ export function removeFromJsonl(path, key) {
   if (next.length !== rows.length) writeJsonlAtomic(path, next);
 }
 
+// ── Dedup check + unscored marks ────────────────────────────────────
+
+export function checkJob({ id, key, hash } = {}, processedPath = PROCESSED_PATH) {
+  const rows = readJsonl(processedPath);
+  const record = rows.find(r =>
+    (id != null && r.id === id) || (key != null && r.fallback_key === key));
+  if (!record) return { found: false, changed: false };
+  const changed = hash != null && record.description_hash !== hash;
+  return { found: true, changed, record };
+}
+
+export const MARK_STATUSES = Object.freeze(['error', 'closed', 'missing_jd', 'skipped']);
+
+// Record a job that could not be scored (dead posting, missing JD, nav error)
+// so reruns never re-process it. Distinct from saveJob, which requires a score.
+export function markJob(input, processedPath = PROCESSED_PATH) {
+  const status = input?.status;
+  if (!MARK_STATUSES.includes(status)) {
+    throw new Error(`markJob: status must be one of ${MARK_STATUSES.join('|')}, got: ${JSON.stringify(status)}`);
+  }
+  const record = normalizeJob(input);
+  const entry = {
+    id: record.id,
+    fallback_key: record.fallback_key,
+    title: record.raw.title,
+    company: record.raw.company,
+    score: null,
+    classification: status,
+    reason: input.reason ?? null,
+    description_hash: record.description_hash,
+    collected_at: record.collected_at,
+    evaluated_at: null,
+  };
+  upsertJsonl(processedPath, entry);
+  return entry;
+}
+
 // ── CLI ─────────────────────────────────────────────────────────────
 
 function usage() {
