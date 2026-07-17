@@ -83,6 +83,32 @@ export function classify(score, cfg = DEFAULTS) {
   return 'irrelevant';
 }
 
+// ── Dedup keys ──────────────────────────────────────────────────────
+
+// LinkedIn job URLs carry the numeric job id either in the path
+// (/jobs/view/{id} or /jobs/view/{slug}-{id}) or as ?currentJobId={id}.
+export function parseJobId(url) {
+  if (typeof url !== 'string') return null;
+  const view = url.match(/\/jobs\/view\/(?:[^/?#]*?-)?(\d{6,})/);
+  if (view) return view[1];
+  const param = url.match(/[?&]currentJobId=(\d{6,})/);
+  if (param) return param[1];
+  return null;
+}
+
+export function normalizeField(value) {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Fallback dedup key when the job id is unavailable.
+export function fallbackKey(company, title, location) {
+  return [company, title, location].map(normalizeField).join('|');
+}
+
 // ── CLI ─────────────────────────────────────────────────────────────
 
 function usage() {

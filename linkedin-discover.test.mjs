@@ -8,6 +8,7 @@
 
 import {
   DEFAULTS, resolveConfig, classify,
+  parseJobId, normalizeField, fallbackKey,
 } from './linkedin-discover.mjs';
 
 let passed = 0;
@@ -83,6 +84,37 @@ assertThrows(() => classify(-1), 'classify: negative score throws');
 assertThrows(() => classify(5.1), 'classify: score > 5 throws');
 assertThrows(() => classify('n/a'), 'classify: non-numeric score throws');
 assertThrows(() => classify(NaN), 'classify: NaN throws');
+
+// ── parseJobId ──────────────────────────────────────────────────────
+
+assert(parseJobId('https://www.linkedin.com/jobs/view/4012345678/') === '4012345678',
+  'parseJobId: plain view URL');
+assert(parseJobId('https://www.linkedin.com/jobs/view/senior-engineer-at-acme-4012345678') === '4012345678',
+  'parseJobId: slug view URL');
+assert(parseJobId('https://www.linkedin.com/jobs/view/4012345678?refId=abc&trackingId=xyz') === '4012345678',
+  'parseJobId: view URL with tracking params');
+assert(parseJobId('https://www.linkedin.com/jobs/search/?currentJobId=4098765432&keywords=engineer') === '4098765432',
+  'parseJobId: currentJobId query param');
+assert(parseJobId('https://www.linkedin.com/jobs/collections/recommended/?currentJobId=4011111111') === '4011111111',
+  'parseJobId: collections URL with currentJobId');
+assert(parseJobId('https://example.com/careers/123') === null, 'parseJobId: non-linkedin URL -> null');
+assert(parseJobId('https://www.linkedin.com/jobs/search/?keywords=engineer') === null,
+  'parseJobId: search URL without job id -> null');
+assert(parseJobId(null) === null, 'parseJobId: null -> null');
+assert(parseJobId(42) === null, 'parseJobId: non-string -> null');
+
+// ── fallbackKey ─────────────────────────────────────────────────────
+
+assert(normalizeField('  Acme,  Corp.  ') === 'acme corp', 'normalizeField: punctuation stripped, whitespace collapsed');
+assert(normalizeField('Señor Engineer') === 'señor engineer', 'normalizeField: unicode letters preserved');
+assert(normalizeField(null) === '', 'normalizeField: null -> empty string');
+
+assert(fallbackKey('Acme Corp.', 'Senior Engineer', 'New York, NY')
+  === 'acme corp|senior engineer|new york ny', 'fallbackKey: normalized pipe-joined');
+assert(fallbackKey('ACME corp', 'senior   engineer', 'new york. ny')
+  === fallbackKey('Acme Corp.', 'Senior Engineer', 'New York, NY'),
+  'fallbackKey: case/punctuation/whitespace variants collide (that is the point)');
+assert(fallbackKey(null, 'Engineer', null) === '|engineer|', 'fallbackKey: missing fields stay positional');
 
 // ── summary ─────────────────────────────────────────────────────────
 
