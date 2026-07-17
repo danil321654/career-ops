@@ -175,6 +175,49 @@ export function normalizeJob(input) {
   };
 }
 
+// ── JSONL store ─────────────────────────────────────────────────────
+// Files are canonical (repo doctrine). Rewrites go through a temp file +
+// atomic rename so an interrupted run never leaves a partial file.
+
+export function readJsonl(path) {
+  if (!existsSync(path)) return [];
+  return readFileSync(path, 'utf-8')
+    .split('\n')
+    .filter(line => line.trim() !== '')
+    .map((line, i) => {
+      try { return JSON.parse(line); }
+      catch { throw new Error(`${path}:${i + 1}: malformed JSONL line`); }
+    });
+}
+
+export function writeJsonlAtomic(path, records) {
+  mkdirSync(dirname(path), { recursive: true });
+  const tmp = `${path}.tmp`;
+  const body = records.map(r => JSON.stringify(r)).join('\n');
+  writeFileSync(tmp, body ? `${body}\n` : '', 'utf-8');
+  renameSync(tmp, path);
+}
+
+export function recordKey(record) {
+  return record.id ?? record.fallback_key;
+}
+
+export function upsertJsonl(path, record) {
+  const rows = readJsonl(path);
+  const key = recordKey(record);
+  const idx = rows.findIndex(r => recordKey(r) === key);
+  if (idx === -1) rows.push(record);
+  else rows[idx] = record;
+  writeJsonlAtomic(path, rows);
+  return idx === -1 ? 'inserted' : 'updated';
+}
+
+export function removeFromJsonl(path, key) {
+  const rows = readJsonl(path);
+  const next = rows.filter(r => recordKey(r) !== key);
+  if (next.length !== rows.length) writeJsonlAtomic(path, next);
+}
+
 // ── CLI ─────────────────────────────────────────────────────────────
 
 function usage() {

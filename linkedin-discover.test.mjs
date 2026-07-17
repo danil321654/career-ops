@@ -10,7 +10,11 @@ import {
   DEFAULTS, resolveConfig, classify,
   parseJobId, normalizeField, fallbackKey,
   normalizeJob, descriptionHash, parsePostedAt, RAW_FIELDS, NORMALIZED_FIELDS,
+  readJsonl, writeJsonlAtomic, upsertJsonl, removeFromJsonl, recordKey,
 } from './linkedin-discover.mjs';
+import { mkdtempSync, rmSync, readFileSync as rf, writeFileSync as wf, existsSync as ex, readdirSync } from 'fs';
+import { join as pjoin } from 'path';
+import { tmpdir } from 'os';
 
 let passed = 0;
 let failed = 0;
@@ -194,6 +198,48 @@ assert(descriptionHash('abc') !== descriptionHash('abd'), 'descriptionHash: sens
 assert(parsePostedAt('2026-07-10') === Date.parse('2026-07-10T00:00:00Z'), 'parsePostedAt: ISO date');
 assert(parsePostedAt('2 weeks ago') === undefined, 'parsePostedAt: relative date -> undefined');
 assert(parsePostedAt(null) === undefined, 'parsePostedAt: null -> undefined');
+
+// ── JSONL store ─────────────────────────────────────────────────────
+
+{
+  const dir = mkdtempSync(pjoin(tmpdir(), 'li-jsonl-'));
+  const file = pjoin(dir, 'x.jsonl');
+
+  assert(readJsonl(file).length === 0, 'jsonl: missing file -> empty array');
+
+  const a = { id: '1', fallback_key: 'a|x|us', v: 1 };
+  const b = { id: '2', fallback_key: 'b|y|us', v: 1 };
+  assert(upsertJsonl(file, a) === 'inserted', 'jsonl: first upsert inserts');
+  assert(upsertJsonl(file, b) === 'inserted', 'jsonl: second upsert inserts');
+  assert(readJsonl(file).length === 2, 'jsonl: two records persisted');
+
+  assert(upsertJsonl(file, { ...a, v: 2 }) === 'updated', 'jsonl: same id updates in place');
+  const rows = readJsonl(file);
+  assert(rows.length === 2 && rows.find(r => r.id === '1').v === 2, 'jsonl: update replaced, not duplicated');
+
+  // key precedence: id else fallback_key
+  assert(recordKey({ id: '9', fallback_key: 'k' }) === '9', 'recordKey: id wins');
+  assert(recordKey({ id: null, fallback_key: 'k' }) === 'k', 'recordKey: fallback when no id');
+
+  // fallback-key dedup (no id on either record)
+  const c = { id: null, fallback_key: 'acme|engineer|berlin', v: 1 };
+  upsertJsonl(file, c);
+  upsertJsonl(file, { ...c, v: 2 });
+  const cRows = readJsonl(file).filter(r => r.fallback_key === 'acme|engineer|berlin');
+  assert(cRows.length === 1 && cRows[0].v === 2, 'jsonl: fallback-key dedup updates in place');
+
+  removeFromJsonl(file, '2');
+  assert(readJsonl(file).find(r => r.id === '2') === undefined, 'jsonl: remove by key');
+
+  // atomic write: no .tmp file left behind
+  assert(readdirSync(dir).every(f => !f.endsWith('.tmp')), 'jsonl: no temp files left after writes');
+
+  // malformed line -> loud error with path and line number
+  wf(file, '{"ok":1}\nnot json\n', 'utf-8');
+  assertThrows(() => readJsonl(file), 'jsonl: malformed line throws');
+
+  rmSync(dir, { recursive: true, force: true });
+}
 
 // ── summary ─────────────────────────────────────────────────────────
 
