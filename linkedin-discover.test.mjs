@@ -9,6 +9,7 @@
 import {
   DEFAULTS, resolveConfig, classify,
   parseJobId, normalizeField, fallbackKey,
+  normalizeJob, descriptionHash, parsePostedAt, RAW_FIELDS, NORMALIZED_FIELDS,
 } from './linkedin-discover.mjs';
 
 let passed = 0;
@@ -121,6 +122,78 @@ assert(fallbackKey('ACME corp', 'senior   engineer', 'new york. ny')
   === fallbackKey('Acme Corp.', 'Senior Engineer', 'New York, NY'),
   'fallbackKey: case/punctuation/whitespace variants collide (that is the point)');
 assert(fallbackKey(null, 'Engineer', null) === '|engineer|', 'fallbackKey: missing fields stay positional');
+
+// ── normalizeJob ────────────────────────────────────────────────────
+
+const FULL_JOB = {
+  raw: {
+    title: 'Senior Backend Engineer',
+    company: 'Acme Corp',
+    company_linkedin_url: 'https://www.linkedin.com/company/acme',
+    job_url: 'https://www.linkedin.com/jobs/view/4012345678/',
+    location: 'United States (Remote)',
+    workplace_type: 'Remote',
+    employment_type: 'Full-time',
+    seniority: 'Senior',
+    salary_range: '$150K - $190K',
+    date_posted: '2026-07-10',
+    applicants: '57',
+    description: 'We are looking for a senior backend engineer...',
+    company_info: 'Acme builds infrastructure. 500 employees.',
+  },
+  normalized: {
+    required_skills: ['Go', 'PostgreSQL'],
+    preferred_skills: ['Kubernetes'],
+    experience: '5+ years backend',
+    education: null,
+    visa_sponsorship: 'not mentioned',
+    technologies: ['Go', 'PostgreSQL', 'Kubernetes', 'AWS'],
+  },
+};
+
+{
+  const rec = normalizeJob(FULL_JOB);
+  assert(rec.id === '4012345678', 'normalizeJob: id parsed from job_url');
+  assert(rec.fallback_key === 'acme corp|senior backend engineer|united states remote',
+    'normalizeJob: fallback_key computed');
+  assert(rec.raw.title === 'Senior Backend Engineer', 'normalizeJob: raw fields preserved');
+  assert(rec.raw.description === FULL_JOB.raw.description, 'normalizeJob: original description preserved');
+  assert(rec.normalized.required_skills.length === 2, 'normalizeJob: normalized fields preserved');
+  assert(typeof rec.description_hash === 'string' && rec.description_hash.length === 64,
+    'normalizeJob: sha256 description hash');
+  assert(typeof rec.collected_at === 'string' && !Number.isNaN(Date.parse(rec.collected_at)),
+    'normalizeJob: collected_at is a valid ISO timestamp');
+  assert(rec.eval === null, 'normalizeJob: eval null when absent');
+}
+
+{
+  // Incomplete page: missing fields become null, never invented.
+  const rec = normalizeJob({ raw: { title: 'Engineer', company: 'Acme', job_url: 'https://www.linkedin.com/jobs/view/4000000001/' } });
+  assert(rec.raw.salary_range === null, 'normalizeJob: missing salary -> null');
+  assert(rec.raw.description === null, 'normalizeJob: missing description -> null');
+  assert(rec.normalized.required_skills === null, 'normalizeJob: missing normalized field -> null');
+  assert(rec.description_hash === descriptionHash(''), 'normalizeJob: hash of empty description is stable');
+}
+
+{
+  // Explicit id wins over URL parsing; fallback key works without id.
+  const rec = normalizeJob({ id: '999999999', raw: { title: 'Engineer', company: 'Acme' } });
+  assert(rec.id === '999999999', 'normalizeJob: explicit id preserved');
+  const noId = normalizeJob({ raw: { title: 'Engineer', company: 'Acme', location: 'Berlin' } });
+  assert(noId.id === null && noId.fallback_key === 'acme|engineer|berlin',
+    'normalizeJob: no id -> null id + usable fallback key');
+}
+
+assertThrows(() => normalizeJob(null), 'normalizeJob: null input throws');
+assertThrows(() => normalizeJob({ raw: { applicants: '5' } }),
+  'normalizeJob: malformed page (no id/company/title) throws');
+
+assert(descriptionHash('abc') === descriptionHash('abc'), 'descriptionHash: deterministic');
+assert(descriptionHash('abc') !== descriptionHash('abd'), 'descriptionHash: sensitive to change');
+
+assert(parsePostedAt('2026-07-10') === Date.parse('2026-07-10T00:00:00Z'), 'parsePostedAt: ISO date');
+assert(parsePostedAt('2 weeks ago') === undefined, 'parsePostedAt: relative date -> undefined');
+assert(parsePostedAt(null) === undefined, 'parsePostedAt: null -> undefined');
 
 // ── summary ─────────────────────────────────────────────────────────
 

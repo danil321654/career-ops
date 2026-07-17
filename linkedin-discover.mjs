@@ -112,6 +112,69 @@ export function fallbackKey(company, title, location) {
   return [company, title, location].map(normalizeField).join('|');
 }
 
+// ── Record normalization ────────────────────────────────────────────
+
+export const RAW_FIELDS = Object.freeze([
+  'title', 'company', 'company_linkedin_url', 'job_url', 'location',
+  'workplace_type', 'employment_type', 'seniority', 'salary_range',
+  'date_posted', 'applicants', 'description', 'company_info',
+]);
+
+export const NORMALIZED_FIELDS = Object.freeze([
+  'required_skills', 'preferred_skills', 'experience', 'education',
+  'visa_sponsorship', 'technologies',
+]);
+
+export function descriptionHash(description) {
+  return createHash('sha256').update(String(description ?? ''), 'utf-8').digest('hex');
+}
+
+// LinkedIn shows either an absolute date or a relative one ("2 weeks ago").
+// Only absolute YYYY-MM-DD dates convert to epoch ms; anything else is undefined
+// so the pipeline line simply omits the posted: segment.
+export function parsePostedAt(datePosted) {
+  if (typeof datePosted !== 'string') return undefined;
+  const m = datePosted.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (!m) return undefined;
+  const t = Date.parse(`${m[1]}T00:00:00Z`);
+  return Number.isFinite(t) ? t : undefined;
+}
+
+function pickFields(source, fields) {
+  const out = {};
+  for (const f of fields) {
+    const v = source?.[f];
+    out[f] = (v === undefined || v === null || v === '') ? null : v;
+  }
+  return out;
+}
+
+export function normalizeJob(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error('normalizeJob: input must be an object');
+  }
+  const raw = pickFields(input.raw ?? input, RAW_FIELDS);
+  const normalized = pickFields(input.normalized ?? {}, NORMALIZED_FIELDS);
+
+  const id = input.id ?? parseJobId(raw.job_url ?? '');
+  if (!id && raw.company === null && raw.title === null) {
+    const present = RAW_FIELDS.filter(f => raw[f] !== null);
+    throw new Error(
+      `normalizeJob: malformed job page — no job id, no company, no title. Fields present: ${present.join(', ') || '(none)'}`,
+    );
+  }
+
+  return {
+    id: id ?? null,
+    fallback_key: fallbackKey(raw.company, raw.title, raw.location),
+    raw,
+    normalized,
+    eval: input.eval ?? null,
+    collected_at: input.collected_at ?? new Date().toISOString(),
+    description_hash: descriptionHash(raw.description),
+  };
+}
+
 // ── CLI ─────────────────────────────────────────────────────────────
 
 function usage() {
