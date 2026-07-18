@@ -30,6 +30,7 @@ These files contain your personal data, customizations, and work product. Update
 | `data/scan-runs.tsv` | Your per-run scan counters (appended by `scan.mjs`, read by `stats.mjs`) |
 | `data/portal-health.tsv` | Consecutive reachability status for scanned portals (appended by `scan.mjs`) |
 | `data/linkedin/*` | LinkedIn discovery results and resume state (`good_matches.jsonl`, `mid_matches.jsonl`, `processed_jobs.jsonl`) |
+| `data/indeed/*` | Indeed discovery results and resume state (`good_matches.jsonl`, `mid_matches.jsonl`, `processed_jobs.jsonl`) |
 | `data/follow-ups.md` | Your follow-up history |
 | `data/offers/*` | Your received offers/contracts, promise notes, prep reports, and reply drafts (PII — gitignored, written by the `offer-prep` mode) |
 | `data/salary-observations.tsv` | Your append-only compensation observation log: `{tracker#}\t{date}\t{desired\|advertised\|actual}\t{amount}\t{currency}\t{source}\t{note}`. Written by interactive modes when a figure is stated/confirmed; never edited in place. Advertised figures come from reports' `advertised_comp` instead — reports are themselves observation sources. Read by `salary-gap.mjs` |
@@ -63,6 +64,7 @@ These files contain system logic, scripts, templates, and instructions that impr
 | `modes/ofertas.md` | Comparison instructions |
 | `modes/pipeline.md` | Pipeline processing instructions |
 | `modes/linkedin.md` | LinkedIn discovery mode instructions |
+| `modes/indeed.md` | Indeed discovery mode instructions |
 | `modes/project.md` | Project evaluation instructions |
 | `modes/tracker.md` | Tracker instructions |
 | `modes/training.md` | Training evaluation instructions |
