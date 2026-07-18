@@ -128,9 +128,18 @@ assertThrows(() => normalizeJob({ raw: { applicants: '5' } }),
     const g = await saveJob(mkJob('aaaa111122223333', 4.2), cfg);
     assert(g.classification === 'good' && g.pipelined === true, 'save: good match pipelined');
     assert(readJsonl(GOOD_PATH).length === 1, 'save: good match in data/indeed/good_matches.jsonl');
-    assert(!rf('data/pipeline.md', 'utf-8').includes('linkedin')
-      && rf('data/scan-history.tsv', 'utf-8').includes('indeed'),
-      'save: scan-history row carries portal=indeed');
+    assert(!rf('data/pipeline.md', 'utf-8').includes('linkedin'),
+      'save: pipeline does not include linkedin');
+    // scan-history.tsv is TAB-separated; portal is column index 2. Parse the
+    // data row (skip header) and assert the portal column literally equals
+    // 'indeed' — not a substring match, which the indeed.com job_url would
+    // satisfy vacuously.
+    const histRows = rf('data/scan-history.tsv', 'utf-8').trim().split('\n');
+    const histData = histRows.slice(1).map(l => l.split('\t'));
+    assert(histData.length === 1 && histData[0][2] === 'indeed',
+      `save: scan-history data row portal column === 'indeed' (got ${JSON.stringify(histData[0] && histData[0][2])})`);
+    assert(histData[0][0].includes('viewjob?jk='),
+      'save: scan-history row url column is the indeed job url');
 
     const m = await saveJob(mkJob('bbbb111122223333', 3.0), cfg);
     assert(m.classification === 'mid' && m.pipelined === false, 'save: mid not pipelined');
