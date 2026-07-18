@@ -128,6 +128,9 @@ AI-powered, CLI-agnostic job search automation: pipeline tracking, offer evaluat
 | `scan-ats-full.mjs` | Reverse-ATS keyword-first scanner — walks the full public job-board-aggregator dataset per ATS provider (Greenhouse/Lever/Ashby/Workday), filtered by portals.yml's title_filter/location_filter. No company-list curation needed; complements scan.mjs's company-first model. |
 | `linkedin-discover.mjs` | LinkedIn discovery helper — config/check/save/mark/stats for `modes/linkedin.md`; classifies scored jobs (good ≥ 3.5 / mid / irrelevant ≤ 2.5) into `data/linkedin/*.jsonl` and pipelines good matches (JSON output) |
 | `data/linkedin/` | LinkedIn discovery outputs + resume state (user layer, gitignored) |
+| `discover-core.mjs` | Board-agnostic discovery engine shared by `linkedin-discover.mjs` / `indeed-discover.mjs` (classification, JSONL store, check/mark/save, stats, CLI) |
+| `indeed-discover.mjs` | Indeed discovery helper — config/check/save/mark/stats for `modes/indeed.md`; classifies scored jobs into `data/indeed/*.jsonl` and pipelines good matches (JSON output) |
+| `data/indeed/` | Indeed discovery outputs + resume state (user layer, gitignored) |
 | `check-liveness.mjs` | Job posting liveness checker |
 | `liveness-core.mjs` | Shared liveness logic (expired signals win over generic Apply text) |
 | `reports/` | Evaluation reports (format: `{###}-{company-slug}-{YYYY-MM-DD}.md`). Blocks A-F + G (Posting Legitimacy) + Risk Summary, plus `## Machine Summary` YAML for downstream scripts. Header includes `**Legitimacy:** {tier}`. |
@@ -329,6 +332,7 @@ These are two separate axes:
 | Fills out application form | `apply` |
 | Searches for new offers | `scan` |
 | Wants to discover jobs on LinkedIn (authenticated session, discovery-only) | `linkedin` — Playwright MCP search + collect + compact scoring; good matches feed `data/pipeline.md`; never applies or messages |
+| Wants to discover jobs on Indeed (discovery-only) | `indeed` — Playwright MCP search + collect + compact scoring; good matches feed `data/pipeline.md`; never applies or messages |
 | Processes pending URLs | `pipeline` |
 | Batch processes offers | `batch` |
 | Asks about rejection patterns, wants to improve targeting, or wants to match interview answers to best-fit roles | `patterns` |
