@@ -126,6 +126,8 @@ AI-powered, CLI-agnostic job search automation: pipeline tracking, offer evaluat
 | `data/blacklist.md` | Your do-not-apply company list (user layer, opt-in — never auto-populated; respected by `scan.mjs` and the `auto-pipeline`/`oferta`/`apply` gates) |
 | `scan.mjs` | Zero-token portal scanner — hits Greenhouse/Ashby/Lever APIs directly, zero LLM cost |
 | `scan-ats-full.mjs` | Reverse-ATS keyword-first scanner — walks the full public job-board-aggregator dataset per ATS provider (Greenhouse/Lever/Ashby/Workday), filtered by portals.yml's title_filter/location_filter. No company-list curation needed; complements scan.mjs's company-first model. |
+| `linkedin-discover.mjs` | LinkedIn discovery helper — config/check/save/mark/stats for `modes/linkedin.md`; classifies scored jobs (good ≥ 3.5 / mid / irrelevant ≤ 2.5) into `data/linkedin/*.jsonl` and pipelines good matches (JSON output) |
+| `data/linkedin/` | LinkedIn discovery outputs + resume state (user layer, gitignored) |
 | `check-liveness.mjs` | Job posting liveness checker |
 | `liveness-core.mjs` | Shared liveness logic (expired signals win over generic Apply text) |
 | `reports/` | Evaluation reports (format: `{###}-{company-slug}-{YYYY-MM-DD}.md`). Blocks A-F + G (Posting Legitimacy) + Risk Summary, plus `## Machine Summary` YAML for downstream scripts. Header includes `**Legitimacy:** {tier}`. |
@@ -326,6 +328,7 @@ These are two separate axes:
 | Asks about application status | `tracker` |
 | Fills out application form | `apply` |
 | Searches for new offers | `scan` |
+| Wants to discover jobs on LinkedIn (authenticated session, discovery-only) | `linkedin` — Playwright MCP search + collect + compact scoring; good matches feed `data/pipeline.md`; never applies or messages |
 | Processes pending URLs | `pipeline` |
 | Batch processes offers | `batch` |
 | Asks about rejection patterns, wants to improve targeting, or wants to match interview answers to best-fit roles | `patterns` |

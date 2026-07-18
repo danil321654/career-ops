@@ -170,6 +170,24 @@
 #         - "llm"
 #         - "claude"
 
+# -- LinkedIn discovery (optional) --
+# Config for the agent-driven LinkedIn discovery mode (/career-ops linkedin).
+# Requires the Playwright MCP server and a logged-in LinkedIn browser session.
+# Discovery-only: the mode never applies, messages, or submits anything.
+# Note: automated LinkedIn browsing violates LinkedIn ToS even when read-only;
+# keep max_jobs conservative. See docs/linkedin-pipeline.md.
+#
+# linkedin:
+#   enabled: true
+#   query: "senior software engineer"   # required (here or in chat) — no default
+#   location: "United States"           # default when absent
+#   workplace_types: [remote]           # optional: remote | hybrid | onsite
+#   seniority: []                       # optional LinkedIn seniority labels
+#   date_posted: "past_week"            # optional: past_24h | past_week | past_month
+#   max_jobs: 25                        # default 25
+#   minimum_mid_score: 2.5              # 2.5 < score < 3.5 -> mid match
+#   minimum_good_score: 3.5             # score >= 3.5 -> good match
+
 # -- Title filter --
 # The scanner uses these keywords to decide if a title is relevant.
 # At least 1 positive must match AND 0 negatives must match (case-insensitive).
