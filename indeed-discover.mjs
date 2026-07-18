@@ -1,13 +1,11 @@
 /**
- * linkedin-discover.mjs — LinkedIn board wrapper over discover-core.mjs.
- * The agent mode (modes/linkedin.md) does all Playwright MCP browsing and
- * scoring; this script supplies the LinkedIn-specific pieces (data paths,
- * config block, URL→id parser, raw-field list, pipeline source tag) and
- * delegates everything else — classification, dedup, JSONL storage, resume
- * state, hybrid pipeline writes, CLI — to discover-core.mjs.
+ * indeed-discover.mjs — Indeed board wrapper over discover-core.mjs.
+ * The agent mode (modes/indeed.md) does all Playwright MCP browsing and
+ * scoring; this script supplies the Indeed-specific pieces (data paths,
+ * config block, URL→job-key parser, raw-field list, pipeline source tag)
+ * and delegates everything else to discover-core.mjs.
  *
  * Subcommands: config | check | save | mark | stats (see discover-core runCli).
- * Design spec: docs/superpowers/specs/2026-07-17-linkedin-discovery-design.md
  */
 
 import { join } from 'path';
@@ -26,7 +24,7 @@ export {
   removeFromJsonl, MARK_STATUSES,
 };
 
-export const DATA_DIR = 'data/linkedin';
+export const DATA_DIR = 'data/indeed';
 export const GOOD_PATH = join(DATA_DIR, 'good_matches.jsonl');
 export const MID_PATH = join(DATA_DIR, 'mid_matches.jsonl');
 export const PROCESSED_PATH = join(DATA_DIR, 'processed_jobs.jsonl');
@@ -44,31 +42,28 @@ export const DEFAULTS = Object.freeze({
 });
 
 export function resolveConfig(yamlObj) {
-  return resolveConfigCore(yamlObj, 'linkedin', DEFAULTS);
+  return resolveConfigCore(yamlObj, 'indeed', DEFAULTS);
 }
 
-// LinkedIn job URLs carry the numeric job id either in the path
-// (/jobs/view/{id} or /jobs/view/{slug}-{id}) or as ?currentJobId={id}.
-export function parseJobId(url) {
+// Indeed job URLs carry a hex "job key" as ?jk= (viewjob, rc/clk redirects)
+// or ?vjk= (search-results pane). Only indeed.com hosts count.
+export function parseIndeedJobKey(url) {
   if (typeof url !== 'string') return null;
   let host;
   try { host = new URL(url).hostname; } catch { return null; }
-  if (host !== 'linkedin.com' && !host.endsWith('.linkedin.com')) return null;
-  const view = url.match(/\/jobs\/view\/(?:[^/?#]*?-)?(\d{6,})/);
-  if (view) return view[1];
-  const param = url.match(/[?&]currentJobId=(\d{6,})/);
-  if (param) return param[1];
-  return null;
+  if (host !== 'indeed.com' && !host.endsWith('.indeed.com')) return null;
+  const m = url.match(/[?&]v?jk=([0-9a-f]{8,24})(?:[&#]|$)/);
+  return m ? m[1] : null;
 }
 
 export const RAW_FIELDS = Object.freeze([
-  'title', 'company', 'company_linkedin_url', 'job_url', 'location',
+  'title', 'company', 'company_url', 'job_url', 'location',
   'workplace_type', 'employment_type', 'seniority', 'salary_range',
   'date_posted', 'applicants', 'description', 'company_info',
 ]);
 
 export function normalizeJob(input) {
-  return normalizeJobCore(input, { rawFields: RAW_FIELDS, parseId: parseJobId });
+  return normalizeJobCore(input, { rawFields: RAW_FIELDS, parseId: parseIndeedJobKey });
 }
 
 export function checkJob(query = {}, processedPath = PROCESSED_PATH) {
@@ -84,7 +79,7 @@ export async function saveJob(input, cfg = DEFAULTS, paths = {}) {
     good: paths.good ?? GOOD_PATH,
     mid: paths.mid ?? MID_PATH,
     processed: paths.processed ?? PROCESSED_PATH,
-    source: 'linkedin',
+    source: 'indeed',
     normalizeFn: normalizeJob,
   });
 }
@@ -95,7 +90,7 @@ export function computeStats(paths = {}) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   await runCli({
-    scriptName: 'linkedin-discover.mjs',
+    scriptName: 'indeed-discover.mjs',
     resolveConfig, checkJob, saveJob, markJob, computeStats,
   });
 }
